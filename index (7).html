@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NeuroScan — DICOM Viewer · Assia Marzouk</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Rajdhani:wght@300;400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{
+  --bg:#010408;
+  --bg2:#060d14;
+  --panel:#0a1520;
+  --panel2:#0d1c2e;
+  --border:#0e3a5c;
+  --border2:#1a5a8a;
+  --accent:#00d4ff;
+  --accent2:#00ff88;
+  --accent3:#ff6b35;
+  --text:#c8e8ff;
+  --muted:#4a7a9b;
+  --dim:#1e3a52;
+  --glow:rgba(0,212,255,0.15);
+  --glow2:rgba(0,255,136,0.1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Rajdhani',sans-serif;font-weight:400;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+
+/* ── SCANLINE OVERLAY ── */
+body::after{
+  content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,212,255,0.015) 2px,rgba(0,212,255,0.015) 4px);
+  pointer-events:none;z-index:9999;
+}
+
+/* ── BOOT SCREEN ── */
+#boot{
+  position:fixed;inset:0;z-index:9998;
+  background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:0;
+  transition:opacity .6s ease;
+}
+#boot.out{opacity:0;pointer-events:none}
+
+.boot-logo{
+  font-family:'Orbitron',monospace;font-size:clamp(2.5rem,6vw,4.5rem);
+  font-weight:900;letter-spacing:.15em;
+  color:var(--accent);
+  text-shadow:0 0 40px rgba(0,212,255,.6),0 0 80px rgba(0,212,255,.3);
+  animation:flicker 3s infinite;
+  margin-bottom:8px;
+}
+.boot-sub{
+  font-family:'Share Tech Mono',monospace;font-size:.7rem;
+  letter-spacing:.5em;color:var(--muted);
+  text-transform:uppercase;margin-bottom:4px;
+}
+.boot-name{
+  font-family:'Orbitron',monospace;font-size:1rem;font-weight:600;
+  color:var(--accent2);letter-spacing:.2em;
+  text-shadow:0 0 20px rgba(0,255,136,.5);
+  margin-bottom:48px;
+}
+.boot-bar-wrap{width:300px;height:2px;background:var(--dim);border-radius:2px;overflow:hidden;margin-bottom:10px}
+.boot-bar{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:2px;transition:width .05s linear}
+.boot-status{font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--muted);letter-spacing:.15em;min-height:1.2em}
+.boot-btn{
+  margin-top:40px;padding:12px 48px;
+  background:transparent;border:1px solid var(--accent);
+  color:var(--accent);font-family:'Orbitron',monospace;font-size:.65rem;
+  font-weight:600;letter-spacing:.3em;text-transform:uppercase;
+  cursor:pointer;position:relative;overflow:hidden;
+  transition:color .3s,box-shadow .3s;
+  display:none;
+}
+.boot-btn::before{
+  content:'';position:absolute;inset:0;
+  background:var(--accent);transform:translateX(-100%);
+  transition:transform .3s ease;z-index:-1;
+}
+.boot-btn:hover{color:var(--bg);box-shadow:0 0 30px rgba(0,212,255,.4)}
+.boot-btn:hover::before{transform:translateX(0)}
+.boot-btn.show{display:block;animation:fadeup .5s ease forwards}
+
+@keyframes flicker{0%,19%,21%,23%,25%,54%,56%,100%{opacity:1}20%,24%,55%{opacity:.8}}
+@keyframes fadeup{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── APP ── */
+#app{display:none;height:100vh;flex-direction:column}
+#app.on{display:flex}
+
+/* ── TOPBAR ── */
+.topbar{
+  height:48px;background:var(--panel);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;
+  padding:0 20px;gap:0;flex-shrink:0;
+  position:relative;
+}
+.topbar::after{
+  content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  opacity:.4;
+}
+.tb-brand{display:flex;align-items:center;gap:12px;margin-right:32px}
+.tb-logo-icon{
+  width:28px;height:28px;position:relative;
+  border:1px solid var(--accent);border-radius:4px;
+  display:flex;align-items:center;justify-content:center;
+}
+.tb-logo-icon::before{
+  content:'';width:10px;height:10px;border-radius:50%;
+  border:1.5px solid var(--accent);
+  box-shadow:0 0 8px var(--accent);
+}
+.tb-logo-icon::after{
+  content:'';position:absolute;width:28px;height:1px;
+  background:var(--accent);opacity:.4;top:50%;
+}
+.tb-name{font-family:'Orbitron',monospace;font-size:.85rem;font-weight:700;color:var(--accent);letter-spacing:.1em;line-height:1}
+.tb-ver{font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);letter-spacing:.15em}
+
+.tb-divider{width:1px;height:24px;background:var(--border2);margin:0 20px}
+
+.tb-info{display:flex;gap:28px;flex:1}
+.tbi{display:flex;flex-direction:column;gap:1px}
+.tbi-l{font-family:'Share Tech Mono',monospace;font-size:.48rem;color:var(--muted);text-transform:uppercase;letter-spacing:.15em}
+.tbi-v{font-family:'Share Tech Mono',monospace;font-size:.68rem;color:var(--text);letter-spacing:.05em}
+.tbi-v.hi{color:var(--accent2)}
+
+.tb-right{display:flex;align-items:center;gap:10px;margin-left:auto}
+.status-led{display:flex;align-items:center;gap:6px;font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--muted);letter-spacing:.1em}
+.led{width:7px;height:7px;border-radius:50%;background:var(--muted);transition:all .3s}
+.led.on{background:var(--accent2);box-shadow:0 0 8px var(--accent2),0 0 16px var(--accent2)}
+
+.btn-load{
+  padding:6px 18px;background:transparent;
+  border:1px solid var(--accent);color:var(--accent);
+  font-family:'Orbitron',monospace;font-size:.55rem;font-weight:600;
+  letter-spacing:.2em;text-transform:uppercase;cursor:pointer;
+  transition:all .25s;border-radius:2px;
+}
+.btn-load:hover{background:var(--accent);color:var(--bg);box-shadow:0 0 20px rgba(0,212,255,.4)}
+#fi{display:none}
+
+/* ── MAIN GRID ── */
+.main{display:grid;grid-template-columns:260px 1fr 320px;flex:1;overflow:hidden;gap:0}
+
+/* ── LEFT: CONTROLS ── */
+.left{
+  background:var(--panel);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+
+.sect{padding:16px 14px;border-bottom:1px solid var(--border)}
+.sect-title{
+  font-family:'Orbitron',monospace;font-size:.55rem;font-weight:600;
+  letter-spacing:.25em;text-transform:uppercase;color:var(--muted);
+  display:flex;align-items:center;gap:8px;margin-bottom:14px;
+}
+.sect-title::before{content:'';width:12px;height:1px;background:var(--accent);box-shadow:0 0 6px var(--accent)}
+.sect-title::after{content:'';flex:1;height:1px;background:var(--dim)}
+
+/* Patient card */
+.pc{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:12px}
+.pc-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--dim)}
+.pc-row:last-child{border-bottom:none}
+.pc-l{font-family:'Share Tech Mono',monospace;font-size:.55rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+.pc-v{font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--text);text-align:right;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pc-v.accent{color:var(--accent2)}
+
+/* Sliders */
+.sl-group{margin-bottom:14px}
+.sl-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.sl-label{font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.sl-val{font-family:'Orbitron',monospace;font-size:.75rem;font-weight:600;color:var(--accent);text-shadow:0 0 10px rgba(0,212,255,.5)}
+input[type=range]{
+  -webkit-appearance:none;width:100%;height:2px;
+  background:var(--dim);border-radius:2px;outline:none;cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:2px}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;
+  background:var(--bg);border:2px solid var(--accent);border-radius:50%;
+  box-shadow:0 0 10px var(--accent);cursor:pointer;
+  transition:box-shadow .2s;
+}
+input[type=range]::-webkit-slider-thumb:hover{box-shadow:0 0 16px var(--accent),0 0 30px rgba(0,212,255,.3)}
+
+/* Presets */
+.presets{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.preset{
+  padding:6px 4px;background:transparent;border:1px solid var(--dim);
+  border-radius:3px;font-family:'Share Tech Mono',monospace;font-size:.56rem;
+  color:var(--muted);cursor:pointer;transition:all .2s;text-align:center;
+  letter-spacing:.05em;
+}
+.preset span{display:block;font-size:.48rem;color:var(--border2);margin-top:1px}
+.preset:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.05);box-shadow:0 0 8px rgba(0,212,255,.2)}
+.preset.active{border-color:var(--accent2);color:var(--accent2);background:rgba(0,255,136,.07)}
+
+/* Tool buttons */
+.tools{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.tool{
+  padding:7px 4px;background:transparent;border:1px solid var(--dim);
+  border-radius:3px;display:flex;flex-direction:column;align-items:center;
+  gap:3px;cursor:pointer;transition:all .2s;
+  font-family:'Share Tech Mono',monospace;font-size:.48rem;color:var(--muted);
+  letter-spacing:.05em;
+}
+.tool:hover{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.05)}
+.tool.active-inv{border-color:var(--accent2);color:var(--accent2)}
+.tool svg{pointer-events:none}
+
+.btn-pdf{
+  width:100%;padding:10px;background:transparent;
+  border:1px solid var(--accent3);color:var(--accent3);
+  font-family:'Orbitron',monospace;font-size:.58rem;font-weight:600;
+  letter-spacing:.2em;text-transform:uppercase;cursor:pointer;
+  transition:all .25s;border-radius:3px;display:flex;align-items:center;justify-content:center;gap:8px;
+  margin-top:10px;
+}
+.btn-pdf:hover{background:var(--accent3);color:var(--bg);box-shadow:0 0 20px rgba(255,107,53,.4)}
+
+.btn-reset{
+  width:100%;padding:8px;background:transparent;
+  border:1px solid var(--dim);color:var(--muted);
+  font-family:'Share Tech Mono',monospace;font-size:.58rem;
+  letter-spacing:.1em;text-transform:uppercase;cursor:pointer;
+  transition:all .2s;border-radius:3px;margin-top:6px;
+}
+.btn-reset:hover{border-color:var(--border2);color:var(--text)}
+
+/* ── CENTER: VIEWER ── */
+.viewer{
+  background:var(--bg);display:flex;flex-direction:column;
+  border-left:1px solid var(--border);border-right:1px solid var(--border);
+  overflow:hidden;position:relative;
+}
+
+/* Corner decorations */
+.viewer::before,.viewer::after{content:'';position:absolute;width:20px;height:20px;border-color:var(--accent);border-style:solid;opacity:.4;z-index:5;pointer-events:none}
+.viewer::before{top:10px;left:10px;border-width:1px 0 0 1px}
+.viewer::after{bottom:10px;right:10px;border-width:0 1px 1px 0}
+
+/* Drop zone */
+.dropzone{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:20px;cursor:pointer;
+  position:relative;transition:background .3s;
+}
+.dropzone:hover{background:rgba(0,212,255,.02)}
+.dropzone.drag{background:rgba(0,212,255,.04)}
+
+.dz-ring{
+  width:140px;height:140px;border-radius:50%;
+  border:1px solid var(--border2);position:relative;
+  display:flex;align-items:center;justify-content:center;
+  animation:spin-slow 20s linear infinite;
+}
+.dz-ring::before{
+  content:'';position:absolute;inset:-8px;border-radius:50%;
+  border:1px dashed var(--border);
+  animation:spin-slow 15s linear infinite reverse;
+}
+.dz-ring::after{
+  content:'';position:absolute;inset:-16px;border-radius:50%;
+  border:1px solid var(--dim);
+  animation:spin-slow 25s linear infinite;
+}
+.dz-inner{
+  width:80px;height:80px;border-radius:50%;
+  border:1px solid var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 20px rgba(0,212,255,.2),inset 0 0 20px rgba(0,212,255,.05);
+  animation:none;
+}
+@keyframes spin-slow{to{transform:rotate(360deg)}}
+
+.dz-text{font-family:'Orbitron',monospace;font-size:.65rem;font-weight:600;color:var(--muted);letter-spacing:.2em;text-transform:uppercase}
+.dz-sub{font-family:'Share Tech Mono',monospace;font-size:.58rem;color:var(--dim);letter-spacing:.1em}
+.dz-btn{
+  padding:8px 28px;background:transparent;border:1px solid var(--accent);
+  color:var(--accent);font-family:'Orbitron',monospace;font-size:.58rem;
+  font-weight:600;letter-spacing:.2em;cursor:pointer;
+  transition:all .25s;
+}
+.dz-btn:hover{background:var(--accent);color:var(--bg);box-shadow:0 0 20px rgba(0,212,255,.4)}
+
+/* Canvas area */
+#cwrap{
+  flex:1;display:none;overflow:hidden;position:relative;
+  cursor:grab;align-items:center;justify-content:center;
+}
+#cwrap.show{display:flex}
+#cwrap.grab{cursor:grabbing}
+#dc{image-rendering:pixelated;display:block;transform-origin:center center}
+
+/* Overlay corners */
+.ov{position:absolute;font-family:'Share Tech Mono',monospace;font-size:.58rem;
+  line-height:1.7;pointer-events:none;z-index:5;letter-spacing:.08em}
+.ov-tl{top:16px;left:16px;color:rgba(0,212,255,.6)}
+.ov-tr{top:16px;right:16px;text-align:right;color:rgba(0,255,136,.7)}
+.ov-bl{bottom:16px;left:16px;color:rgba(0,212,255,.4)}
+.ov-br{bottom:16px;right:16px;text-align:right;color:rgba(0,212,255,.4)}
+
+/* Crosshair center */
+#cwrap::after{
+  content:'';position:absolute;width:1px;height:30px;
+  background:rgba(0,212,255,.15);left:50%;top:50%;transform:translate(-50%,-50%);
+  pointer-events:none;
+}
+#cwrap::before{
+  content:'';position:absolute;height:1px;width:30px;
+  background:rgba(0,212,255,.15);left:50%;top:50%;transform:translate(-50%,-50%);
+  pointer-events:none;
+}
+
+/* ── RIGHT: META PANEL ── */
+.meta-panel{
+  background:var(--panel);display:flex;flex-direction:column;overflow:hidden;
+}
+
+/* Category tabs */
+.cat-bar{
+  padding:10px 12px 0;background:var(--panel2);
+  border-bottom:1px solid var(--border);flex-shrink:0;
+  display:flex;flex-direction:column;gap:8px;
+}
+.cat-bar-title{
+  font-family:'Orbitron',monospace;font-size:.5rem;font-weight:600;
+  color:var(--muted);letter-spacing:.25em;text-transform:uppercase;
+  display:flex;align-items:center;gap:6px;
+}
+.cat-bar-title::before{content:'';width:8px;height:1px;background:var(--accent)}
+.cat-tabs{display:flex;gap:4px;flex-wrap:wrap;padding-bottom:0}
+.cat-tab{
+  padding:5px 10px;background:transparent;
+  border:1px solid var(--border);border-bottom:none;
+  font-family:'Share Tech Mono',monospace;font-size:.55rem;
+  color:var(--muted);cursor:pointer;transition:all .2s;
+  border-radius:3px 3px 0 0;letter-spacing:.08em;text-transform:uppercase;
+}
+.cat-tab:hover{color:var(--accent);border-color:var(--accent)}
+.cat-tab.active{
+  background:var(--panel);color:var(--accent);
+  border-color:var(--accent);border-bottom:1px solid var(--panel);
+  box-shadow:0 -4px 12px rgba(0,212,255,.15);
+}
+
+/* Search */
+.meta-search{
+  padding:10px 12px;background:var(--panel2);
+  border-bottom:1px solid var(--border);flex-shrink:0;
+  display:flex;gap:6px;align-items:center;
+}
+.meta-search svg{flex-shrink:0;color:var(--muted)}
+.meta-search input{
+  flex:1;background:transparent;border:none;outline:none;
+  font-family:'Share Tech Mono',monospace;font-size:.68rem;
+  color:var(--text);letter-spacing:.05em;
+}
+.meta-search input::placeholder{color:var(--border2)}
+.meta-count{
+  font-family:'Share Tech Mono',monospace;font-size:.55rem;
+  color:var(--accent);letter-spacing:.1em;white-space:nowrap;
+}
+.btn-clr{
+  background:transparent;border:1px solid var(--border);
+  color:var(--muted);padding:3px 8px;
+  font-family:'Share Tech Mono',monospace;font-size:.52rem;
+  letter-spacing:.1em;cursor:pointer;border-radius:2px;
+  white-space:nowrap;transition:all .2s;
+}
+.btn-clr:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Tags list */
+.tags-body{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.tags-body::-webkit-scrollbar{width:3px}
+.tags-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* Group header */
+.grp-head{
+  padding:8px 12px 4px;
+  font-family:'Orbitron',monospace;font-size:.5rem;font-weight:600;
+  color:var(--muted);letter-spacing:.25em;text-transform:uppercase;
+  display:flex;align-items:center;gap:8px;
+  border-bottom:1px solid var(--dim);
+  background:var(--bg2);
+  position:sticky;top:0;z-index:2;
+}
+.grp-head::after{content:'';flex:1;height:1px;background:var(--dim)}
+
+/* Tag row */
+.tag-row{
+  display:grid;grid-template-columns:90px 1fr;
+  padding:5px 12px;border-bottom:1px solid var(--dim);
+  transition:background .12s;cursor:default;
+  align-items:start;gap:6px;
+}
+.tag-row:hover{background:rgba(0,212,255,.04)}
+.tag-left{}
+.tag-hex{font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--accent);display:block;letter-spacing:.05em}
+.tag-vr{
+  font-family:'Share Tech Mono',monospace;font-size:.5rem;color:var(--muted);
+  background:rgba(14,58,92,.5);border:1px solid var(--border);
+  padding:0 4px;border-radius:2px;display:inline-block;margin-top:2px;
+}
+.tag-right{}
+.tag-nm{font-size:.7rem;color:var(--text);font-weight:500;display:block;line-height:1.3;font-family:'Rajdhani',sans-serif}
+.tag-desc{font-size:.6rem;color:var(--muted);display:block;margin-top:1px;line-height:1.4;font-family:'Share Tech Mono',monospace}
+.tag-val{font-family:'Share Tech Mono',monospace;font-size:.62rem;color:var(--accent2);margin-top:3px;display:block;word-break:break-all;line-height:1.4}
+.tag-val.empty{color:var(--border2);font-style:italic}
+
+/* Bottom count */
+.meta-foot{
+  padding:7px 12px;background:var(--panel2);border-top:1px solid var(--border);
+  font-family:'Share Tech Mono',monospace;font-size:.58rem;
+  color:var(--muted);display:flex;justify-content:space-between;
+  flex-shrink:0;letter-spacing:.08em;
+}
+
+/* ── LOADING OVERLAY ── */
+#lod{display:none;position:fixed;inset:0;background:rgba(1,4,8,.85);z-index:1000;
+  align-items:center;justify-content:center;flex-direction:column;gap:14px}
+#lod.on{display:flex}
+.lod-ring{
+  width:50px;height:50px;border-radius:50%;
+  border:2px solid var(--dim);border-top-color:var(--accent);
+  border-right-color:var(--accent2);animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lod-t{font-family:'Orbitron',monospace;font-size:.6rem;letter-spacing:.25em;color:var(--accent);animation:blink 1s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.4}50%{opacity:1}}
+
+/* ── TOAST ── */
+#toast{
+  display:none;position:fixed;bottom:20px;left:50%;
+  transform:translateX(-50%) translateY(50px);
+  background:var(--panel);border:1px solid var(--border2);
+  font-family:'Share Tech Mono',monospace;font-size:.65rem;
+  color:var(--text);padding:10px 20px;border-radius:3px;z-index:2000;
+  letter-spacing:.1em;transition:transform .3s cubic-bezier(.34,1.56,.64,1);
+  box-shadow:0 8px 40px rgba(0,0,0,.6);
+  border-left:3px solid var(--muted);
+}
+#toast.show{display:block;transform:translateX(-50%) translateY(0)}
+#toast.ok{border-left-color:var(--accent2)}
+#toast.err{border-left-color:var(--accent3)}
+
+/* ── EMPTY STATE ── */
+.empty-tags{padding:40px 16px;text-align:center;color:var(--muted)}
+.empty-tags p{font-family:'Share Tech Mono',monospace;font-size:.62rem;letter-spacing:.15em;text-transform:uppercase;line-height:2}
+
+@media(max-width:1100px){.main{grid-template-columns:240px 1fr 280px}}
+</style>
+</head>
+<body>
+
+<!-- ── BOOT SCREEN ── -->
+<div id="boot">
+  <div class="boot-logo">NeuroScan</div>
+  <div class="boot-sub">Medical Imaging System v2.0</div>
+  <div class="boot-name">// Assia Marzouk</div>
+  <div class="boot-bar-wrap"><div class="boot-bar" id="bootBar"></div></div>
+  <div class="boot-status" id="bootStatus">Initialisation…</div>
+  <button class="boot-btn" id="bootBtn" onclick="launchApp()">Accéder au système →</button>
+</div>
+
+<div id="lod"><div class="lod-ring"></div><div class="lod-t">Lecture DICOM…</div></div>
+<div id="toast"></div>
+
+<!-- ── APPLICATION ── -->
+<div id="app">
+  <div class="topbar">
+    <div class="tb-brand">
+      <div class="tb-logo-icon"></div>
+      <div><div class="tb-name">NeuroScan</div><div class="tb-ver">DICOM WORKSTATION</div></div>
+    </div>
+    <div class="tb-divider"></div>
+    <div class="tb-info">
+      <div class="tbi"><span class="tbi-l">Patient</span><span class="tbi-v hi" id="hPat">—</span></div>
+      <div class="tbi"><span class="tbi-l">Modalité</span><span class="tbi-v" id="hMod">—</span></div>
+      <div class="tbi"><span class="tbi-l">Dimensions</span><span class="tbi-v" id="hDim">—</span></div>
+      <div class="tbi"><span class="tbi-l">Date étude</span><span class="tbi-v" id="hDate">—</span></div>
+    </div>
+    <div class="tb-right">
+      <div class="status-led"><div class="led" id="led"></div><span id="ledTxt">STANDBY</span></div>
+      <button class="btn-load" onclick="document.getElementById('fi').click()">⬆ Charger DICOM</button>
+      <input type="file" id="fi" accept=".dcm,.dicom,*" onchange="loadF(this.files[0])">
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- LEFT -->
+    <div class="left">
+      <!-- Patient -->
+      <div class="sect">
+        <div class="sect-title">Patient</div>
+        <div class="pc">
+          <div class="pc-row"><span class="pc-l">NOM</span><span class="pc-v accent" id="pcName">—</span></div>
+          <div class="pc-row"><span class="pc-l">ID</span><span class="pc-v" id="pcId">—</span></div>
+          <div class="pc-row"><span class="pc-l">NAISSANCE</span><span class="pc-v" id="pcDob">—</span></div>
+          <div class="pc-row"><span class="pc-l">SEXE</span><span class="pc-v" id="pcSex">—</span></div>
+          <div class="pc-row"><span class="pc-l">ÂGE</span><span class="pc-v" id="pcAge">—</span></div>
+          <div class="pc-row"><span class="pc-l">TAILLE</span><span class="pc-v" id="pcSize">—</span></div>
+        </div>
+      </div>
+
+      <!-- Fenêtrage -->
+      <div class="sect">
+        <div class="sect-title">Fenêtrage</div>
+        <div class="sl-group">
+          <div class="sl-top"><span class="sl-label">WC — Centre</span><span class="sl-val" id="wcv">40</span></div>
+          <input type="range" id="swc" min="-2000" max="3000" step="1" value="40" oninput="upd()">
+        </div>
+        <div class="sl-group">
+          <div class="sl-top"><span class="sl-label">WW — Largeur</span><span class="sl-val" id="wwv">400</span></div>
+          <input type="range" id="sww" min="1" max="4000" step="1" value="400" oninput="upd()">
+        </div>
+
+        <div class="sect-title" style="margin-top:10px">Préréglages</div>
+        <div class="presets">
+          <button class="preset" data-wc="40" data-ww="400" onclick="applyPreset(this)">Tissu mou<span>WC40 WW400</span></button>
+          <button class="preset" data-wc="-600" data-ww="1600" onclick="applyPreset(this)">Poumon<span>WC-600 WW1600</span></button>
+          <button class="preset" data-wc="400" data-ww="1500" onclick="applyPreset(this)">Os<span>WC400 WW1500</span></button>
+          <button class="preset" data-wc="35" data-ww="80" onclick="applyPreset(this)">Cerveau<span>WC35 WW80</span></button>
+          <button class="preset" data-wc="60" data-ww="360" onclick="applyPreset(this)">Foie<span>WC60 WW360</span></button>
+          <button class="preset" data-wc="50" data-ww="350" onclick="applyPreset(this)">Abdomen<span>WC50 WW350</span></button>
+        </div>
+        <button class="btn-reset" onclick="resetWnd()">↺ Réinitialiser fenêtrage</button>
+      </div>
+
+      <!-- Outils image -->
+      <div class="sect">
+        <div class="sect-title">Outils Image</div>
+        <div class="tools">
+          <div class="tool" onclick="rotate(-90)" title="Rotation -90°">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9A9.75 9.75 0 0 0 5.26 4.74L3 7"/><path d="M3 3v4h4"/></svg>
+            ROT -90
+          </div>
+          <div class="tool" onclick="rotate(90)" title="Rotation +90°">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+            ROT +90
+          </div>
+          <div class="tool" onclick="flip('h')" title="Flip horizontal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3"/><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3"/><line x1="12" y1="20" x2="12" y2="4"/></svg>
+            FLIP H
+          </div>
+          <div class="tool" onclick="flip('v')" title="Flip vertical">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3"/><line x1="4" y1="12" x2="20" y2="12"/></svg>
+            FLIP V
+          </div>
+          <div class="tool" onclick="zoomB(1.25)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            ZOOM+
+          </div>
+          <div class="tool" onclick="zoomB(0.8)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            ZOOM-
+          </div>
+          <div class="tool" onclick="resetView()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+            RESET
+          </div>
+          <div class="tool" id="btnInv" onclick="invertC()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
+            INV
+          </div>
+        </div>
+        <button class="btn-pdf" onclick="exportPDF()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Exporter PDF
+        </button>
+      </div>
+    </div>
+
+    <!-- CENTER VIEWER -->
+    <div class="viewer" id="viewer"
+      ondragover="event.preventDefault();document.getElementById('dzone').classList.add('drag')"
+      ondragleave="document.getElementById('dzone').classList.remove('drag')"
+      ondrop="event.preventDefault();document.getElementById('dzone').classList.remove('drag');if(event.dataTransfer.files[0])loadF(event.dataTransfer.files[0])">
+
+      <!-- Drop zone -->
+      <div class="dropzone" id="dzone" onclick="document.getElementById('fi').click()">
+        <div class="dz-ring">
+          <div class="dz-inner">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round">
+              <path d="M12 2a5 5 0 1 0 0 10A5 5 0 0 0 12 2z"/><path d="M2 20c0-4 4-7 10-7s10 3 10 7"/>
+              <circle cx="12" cy="7" r="2" fill="var(--accent)" opacity=".4"/>
+            </svg>
+          </div>
+        </div>
+        <div class="dz-text">Glisser un fichier DICOM</div>
+        <div class="dz-sub">formats acceptés : .dcm · .dicom</div>
+        <button class="dz-btn" onclick="event.stopPropagation();document.getElementById('fi').click()">Parcourir</button>
+      </div>
+
+      <!-- Canvas -->
+      <div id="cwrap"
+        onwheel="onWheel(event)"
+        onmousedown="onMD(event)"
+        onmousemove="onMM(event)"
+        onmouseup="onMU(event)"
+        onmouseleave="onMU(event)">
+        <canvas id="dc"></canvas>
+        <div class="ov ov-tl" id="ovTL"></div>
+        <div class="ov ov-tr" id="ovTR"></div>
+        <div class="ov ov-bl" id="ovBL"></div>
+        <div class="ov ov-br" id="ovBR">NeuroScan · Assia Marzouk</div>
+      </div>
+    </div>
+
+    <!-- RIGHT META PANEL -->
+    <div class="meta-panel">
+      <div class="cat-bar">
+        <div class="cat-bar-title">Métadonnées DICOM</div>
+        <div class="cat-tabs">
+          <button class="cat-tab active" data-cat="all" onclick="setTab(this)">Tous</button>
+          <button class="cat-tab" data-cat="patient" onclick="setTab(this)">Patient</button>
+          <button class="cat-tab" data-cat="study" onclick="setTab(this)">Étude</button>
+          <button class="cat-tab" data-cat="series" onclick="setTab(this)">Série</button>
+          <button class="cat-tab" data-cat="acquisition" onclick="setTab(this)">Acquisition</button>
+          <button class="cat-tab" data-cat="image" onclick="setTab(this)">Image</button>
+          <button class="cat-tab" data-cat="other" onclick="setTab(this)">Autres</button>
+        </div>
+      </div>
+      <div class="meta-search">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="tsq" placeholder="Rechercher tag, nom, valeur…" oninput="ftags()"/>
+        <span class="meta-count" id="mCount">0 tags</span>
+        <button class="btn-clr" onclick="document.getElementById('tsq').value='';ftags()">CLR</button>
+      </div>
+      <div class="tags-body" id="tagsBody">
+        <div class="empty-tags"><p>Aucun fichier<br>DICOM chargé</p></div>
+      </div>
+      <div class="meta-foot">
+        <span id="mFoot">—</span>
+        <span style="color:var(--accent);letter-spacing:.05em">NeuroScan v2.0</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// BOOT SEQUENCE
+// ════════════════════════════════════════════════════════════
+const bootMsgs=['Initialisation système…','Chargement modules DICOM…','Vérification protocoles…','Calibration interface…','Système prêt.'];
+let bootI=0,bootPct=0;
+const bootInterval=setInterval(()=>{
+  bootPct+=2;
+  document.getElementById('bootBar').style.width=bootPct+'%';
+  if(bootPct%20===0&&bootI<bootMsgs.length){
+    document.getElementById('bootStatus').textContent=bootMsgs[bootI++];
+  }
+  if(bootPct>=100){
+    clearInterval(bootInterval);
+    document.getElementById('bootStatus').textContent='✓ Système initialisé';
+    setTimeout(()=>document.getElementById('bootBtn').classList.add('show'),300);
+  }
+},30);
+
+function launchApp(){
+  document.getElementById('boot').classList.add('out');
+  setTimeout(()=>{
+    document.getElementById('boot').style.display='none';
+    document.getElementById('app').classList.add('on');
+  },700);
+}
+
+// ════════════════════════════════════════════════════════════
+// CATÉGORIES
+// ════════════════════════════════════════════════════════════
+const CAT={
+  patient:['00100010','00100020','00100021','00100030','00100040','00101000','00101010','00101020','00101030','00102000','00102110','00104000'],
+  study:  ['00080020','00080021','00080022','00080023','00080030','00080031','00080032','00080050','00080060','00080070','00080080','00080081','00080090','00081010','00081030','0008103e','00081050','00081070','00081090','00200010','00200052'],
+  series: ['00200011','00200013','00200020','00200032','00200037','00185100','00181030'],
+  acquisition:['00180010','00180015','00180050','00180060','00180080','00180081','00180082','00180083','00180084','00180085','00180087','00180088','00180090','00181100','00181151','00181152','00181160'],
+  image:  ['00280002','00280004','00280008','00280010','00280011','00280030','00280100','00280101','00280102','00280103','00280106','00280107','00281050','00281051','00281052','00281053','00281054'],
+};
+function getCat(tag){
+  const k=tag.replace(/[(),]/g,'').toLowerCase();
+  for(const[c,keys]of Object.entries(CAT)){if(keys.includes(k))return c;}
+  return'other';
+}
+
+// ════════════════════════════════════════════════════════════
+// DICTIONNAIRE
+// ════════════════════════════════════════════════════════════
+const DICT={
+  '00080020':{n:'Date de l\'étude',d:'Date à laquelle l\'étude a été réalisée'},
+  '00080021':{n:'Date de la série',d:'Date d\'acquisition de la série'},
+  '00080022':{n:'Date d\'acquisition',d:'Date précise d\'acquisition'},
+  '00080023':{n:'Date du contenu',d:'Date de création du contenu'},
+  '00080030':{n:'Heure de l\'étude',d:'Heure de début de l\'étude'},
+  '00080050':{n:'N° accession',d:'Identifiant de la demande d\'examen'},
+  '00080060':{n:'Modalité',d:'Type d\'équipement (CT, MR, CR, DR, US...)'},
+  '00080070':{n:'Fabricant',d:'Fabricant de l\'équipement'},
+  '00080080':{n:'Institution',d:'Nom de l\'établissement'},
+  '00080090':{n:'Médecin référent',d:'Médecin prescripteur'},
+  '00081010':{n:'Station',d:'Nom de la station d\'acquisition'},
+  '00081030':{n:'Description étude',d:'Description clinique de l\'examen'},
+  '0008103E':{n:'Description série',d:'Description de la série'},
+  '00081050':{n:'Médecin réalisant',d:'Médecin ayant réalisé l\'examen'},
+  '00081070':{n:'Opérateur',d:'Technicien ou manipulateur'},
+  '00081090':{n:'Modèle équipement',d:'Modèle de l\'appareil'},
+  '00100010':{n:'Nom du patient',d:'Nom et prénom du patient'},
+  '00100020':{n:'ID patient',d:'Identifiant unique du patient'},
+  '00100030':{n:'Date de naissance',d:'Date de naissance (AAAAMMJJ)'},
+  '00100040':{n:'Sexe',d:'M = Masculin · F = Féminin · O = Autre'},
+  '00101010':{n:'Âge',d:'Âge du patient (ex: 045Y)'},
+  '00101020':{n:'Taille',d:'Taille en mètres'},
+  '00101030':{n:'Poids',d:'Poids en kilogrammes'},
+  '00180015':{n:'Partie du corps',d:'Région anatomique examinée'},
+  '00180050':{n:'Épaisseur coupe',d:'Épaisseur nominale en mm'},
+  '00180060':{n:'KVP',d:'Tension du tube en kilovolts'},
+  '00181151':{n:'Courant tube',d:'Courant en milliampères (mA)'},
+  '00181152':{n:'Exposition',d:'Charge en milliampères-secondes (mAs)'},
+  '00185100':{n:'Position patient',d:'HFS, HFP, FFS, FFP…'},
+  '00200010':{n:'ID étude',d:'Identifiant de l\'étude'},
+  '00200011':{n:'N° série',d:'Numéro de série'},
+  '00200013':{n:'N° instance',d:'Numéro de cette image'},
+  '00280002':{n:'Échantillons/pixel',d:'Composantes par pixel'},
+  '00280004':{n:'Photométrie',d:'MONOCHROME2, RGB...'},
+  '00280010':{n:'Lignes',d:'Hauteur image en pixels'},
+  '00280011':{n:'Colonnes',d:'Largeur image en pixels'},
+  '00280030':{n:'Espacement pixel',d:'Taille physique d\'un pixel (mm)'},
+  '00280100':{n:'Bits alloués',d:'Bits alloués par pixel'},
+  '00280101':{n:'Bits stockés',d:'Bits utilisés par pixel'},
+  '00280103':{n:'Représentation pixel',d:'0=non signé · 1=signé'},
+  '00281050':{n:'Centre fenêtre (WC)',d:'Valeur centrale de la fenêtre'},
+  '00281051':{n:'Largeur fenêtre (WW)',d:'Largeur de la fenêtre'},
+  '00281052':{n:'Intercept rescale',d:'Formule : HU = pixel × slope + intercept'},
+  '00281053':{n:'Pente rescale',d:'Formule : HU = pixel × slope + intercept'},
+  '7FE00010':{n:'Données pixel',d:'Données brutes de l\'image'},
+};
+function getDI(g,e){
+  const k=(g.toString(16).padStart(4,'0')+e.toString(16).padStart(4,'0')).toUpperCase();
+  return DICT[k]||DICT[k.toLowerCase()]||{n:`Tag (${g.toString(16).padStart(4,'0')},${e.toString(16).padStart(4,'0')})`,d:'Tag privé ou non référencé'};
+}
+
+// ════════════════════════════════════════════════════════════
+// PARSER
+// ════════════════════════════════════════════════════════════
+const VL=new Set(['OB','OW','SQ','UC','UN','UR','UT','OD','OF','OL']);
+function parseDicom(buf){
+  const dv=new DataView(buf),u8=new Uint8Array(buf);
+  const tags=[];
+  const mg=String.fromCharCode(u8[128],u8[129],u8[130],u8[131]);
+  let o=mg==='DICM'?132:0;
+  while(o<buf.byteLength-8){
+    try{
+      const g=dv.getUint16(o,true),e=dv.getUint16(o+2,true);o+=4;
+      if(g===0xFFFE&&(e===0xE0DD||e===0xE00D)){o+=4;continue;}
+      if(g===0xFFFE&&e===0xE000){const il=dv.getUint32(o,true);o+=4;if(il!==0xFFFFFFFF)o+=il;continue;}
+      let vr='UN',len=0;
+      const c1=u8[o],c2=u8[o+1];
+      const cv=String.fromCharCode(c1,c2);
+      const ex=/^[A-Z]{2}$/.test(cv)&&c1>=65&&c1<=90&&c2>=65&&c2<=90;
+      if(ex){vr=cv;o+=2;if(VL.has(vr)){o+=2;len=dv.getUint32(o,true);o+=4;}else{len=dv.getUint16(o,true);o+=2;}}
+      else{vr='UN';len=dv.getUint32(o,true);o+=4;}
+      if(len===0xFFFFFFFF)len=0;
+      if(o+len>buf.byteLength)break;
+      const info=getDI(g,e);
+      const tag=`(${g.toString(16).padStart(4,'0')},${e.toString(16).padStart(4,'0')})`;
+      if(g===0x7FE0&&e===0x0010){tags.push({tag,g,e,vr,len,value:buf.slice(o,o+len),name:info.n,desc:info.d,isPx:true});o+=len;continue;}
+      let value=null;
+      if(len>0&&len<=131072){
+        switch(vr){
+          case'US':value=len>=2?dv.getUint16(o,true):0;break;
+          case'SS':value=len>=2?dv.getInt16(o,true):0;break;
+          case'UL':value=len>=4?dv.getUint32(o,true):0;break;
+          case'FL':value=len>=4?dv.getFloat32(o,true):0;break;
+          case'FD':value=len>=8?dv.getFloat64(o,true):0;break;
+          default:try{value=new TextDecoder('latin1').decode(new Uint8Array(buf,o,len)).replace(/\0/g,'').trim();}catch{value='[bin]';}
+        }
+      }
+      tags.push({tag,g,e,vr,len,value:value!==null?String(value):'',name:info.n,desc:info.d,isPx:false});
+      o+=len;
+    }catch{break;}
+  }
+  const ds={_tags:tags,_all:{}};
+  for(const t of tags){
+    const k=(t.g.toString(16).padStart(4,'0')+t.e.toString(16).padStart(4,'0')).toLowerCase();
+    ds._all[k]=t.value;
+  }
+  return ds;
+}
+
+function exPx(ds,rows,cols,bits,signed,pd){
+  const px=new Float32Array(rows*cols);
+  let view;
+  try{if(bits===16)view=signed?new Int16Array(pd):new Uint16Array(pd);else view=new Uint8Array(pd);}
+  catch{view=new Uint8Array(pd);}
+  const s=parseFloat(ds._all['00281053']||1)||1;
+  const it=parseFloat(ds._all['00281052']||0)||0;
+  for(let i=0;i<rows*cols&&i<view.length;i++)px[i]=view[i]*s+it;
+  return px;
+}
+
+function rndr(cv,px,rows,cols,wc,ww){
+  cv.width=cols;cv.height=rows;
+  const ctx=cv.getContext('2d'),id=ctx.createImageData(cols,rows);
+  const mn=wc-ww/2,rng=ww||1;
+  for(let i=0;i<rows*cols;i++){
+    let v=((px[i]-mn)/rng)*255;
+    v=v<0?0:v>255?255:v;
+    if(gInv)v=255-v;
+    const b=i*4;id.data[b]=id.data[b+1]=id.data[b+2]=v;id.data[b+3]=255;
+  }
+  ctx.putImageData(id,0,0);
+}
+
+// ════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════
+let gDS=null,gPX=null,gR=512,gC=512;
+let gRot=0,gFH=false,gFV=false,gInv=false;
+let gZ=1,gPX2=0,gPY=0,gDrag=false,gLX=0,gLY=0;
+let gCat='all',allT=[];
+let gWCdef=40,gWWdef=400;
+
+// ════════════════════════════════════════════════════════════
+// TRANSFORM
+// ════════════════════════════════════════════════════════════
+function applyTr(){
+  const cv=document.getElementById('dc');
+  const sx=gFH?-1:1,sy=gFV?-1:1;
+  cv.style.transform=`translate(${gPX2}px,${gPY}px) scale(${gZ*sx},${gZ*sy}) rotate(${gRot}deg)`;
+  document.getElementById('ovBL').textContent=`ZOOM ${Math.round(gZ*100)}%  |  ${gC}×${gR}`;
+}
+function rotate(d){gRot=(gRot+d+360)%360;applyTr();}
+function flip(d){if(d==='h')gFH=!gFH;else gFV=!gFV;applyTr();}
+function zoomB(f){gZ=Math.min(Math.max(gZ*f,.15),10);applyTr();}
+function resetView(){gZ=1;gPX2=0;gPY=0;gRot=0;gFH=false;gFV=false;applyTr();}
+function invertC(){
+  gInv=!gInv;
+  document.getElementById('btnInv').style.color=gInv?'var(--accent2)':'';
+  document.getElementById('btnInv').style.borderColor=gInv?'var(--accent2)':'';
+  if(gPX)rndr(document.getElementById('dc'),gPX,gR,gC,+document.getElementById('swc').value,+document.getElementById('sww').value);
+}
+function onWheel(e){e.preventDefault();gZ=Math.min(Math.max(gZ*(e.deltaY<0?1.12:.88),.15),10);applyTr();}
+function onMD(e){if(e.button!==0)return;gDrag=true;gLX=e.clientX;gLY=e.clientY;document.getElementById('cwrap').classList.add('grab');}
+function onMM(e){if(!gDrag)return;gPX2+=e.clientX-gLX;gPY+=e.clientY-gLY;gLX=e.clientX;gLY=e.clientY;applyTr();}
+function onMU(){gDrag=false;document.getElementById('cwrap').classList.remove('grab');}
+
+// ════════════════════════════════════════════════════════════
+// SLIDERS & PRESETS
+// ════════════════════════════════════════════════════════════
+function upd(){
+  const wc=+document.getElementById('swc').value;
+  const ww=+document.getElementById('sww').value;
+  document.getElementById('wcv').textContent=wc;
+  document.getElementById('wwv').textContent=ww;
+  document.getElementById('ovTR').innerHTML=`WC: ${Math.round(wc)}\nWW: ${Math.round(ww)}`;
+  document.getElementById('ovTR').style.whiteSpace='pre';
+  if(gPX)rndr(document.getElementById('dc'),gPX,gR,gC,wc,ww);
+}
+function applyPreset(btn){
+  document.querySelectorAll('.preset').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('swc').value=btn.dataset.wc;
+  document.getElementById('sww').value=btn.dataset.ww;
+  upd();
+}
+function resetWnd(){
+  document.querySelectorAll('.preset').forEach(b=>b.classList.remove('active'));
+  document.getElementById('swc').value=gWCdef;
+  document.getElementById('sww').value=gWWdef;
+  upd();
+}
+
+// ════════════════════════════════════════════════════════════
+// TAGS DISPLAY
+// ════════════════════════════════════════════════════════════
+function fmtVal(tag,vr,raw){
+  if(!raw||raw==='')return null;
+  const k=tag.replace(/[(),]/g,'').toUpperCase();
+  if(['00080020','00080021','00080022','00080023','00100030'].includes(k)){
+    const s=String(raw).replace(/\D/g,'');
+    if(s.length===8)return`${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}`;
+  }
+  if(['00080030','00080031','00080032'].includes(k)){
+    const s=String(raw).replace(/\D/g,'');
+    if(s.length>=6)return`${s.slice(0,2)}:${s.slice(2,4)}:${s.slice(4,6)}`;
+  }
+  if(k==='00100040'){return{'M':'Masculin','F':'Féminin','O':'Autre'}[raw]||raw;}
+  if(k==='00280103'){return raw==='0'?'Non signé (unsigned)':'Signé (signed)';}
+  return String(raw).substring(0,300);
+}
+
+function setTab(el){
+  document.querySelectorAll('.cat-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  gCat=el.dataset.cat;
+  document.getElementById('tsq').value='';
+  ftags();
+}
+
+function fillTags(ds){
+  allT=ds._tags.filter(t=>!t.isPx).map(t=>({
+    tag:t.tag,vr:t.vr,name:t.name,desc:t.desc,
+    raw:t.value!==null&&t.value!==undefined?String(t.value):'',
+    fmt:fmtVal(t.tag,t.vr,t.value),
+    cat:getCat(t.tag)
+  }));
+  ftags();
+}
+
+function getFiltered(){
+  const q=document.getElementById('tsq').value.toLowerCase().trim();
+  let data=allT;
+  if(gCat!=='all')data=data.filter(r=>r.cat===gCat);
+  if(q)data=data.filter(r=>
+    r.name.toLowerCase().includes(q)||r.desc.toLowerCase().includes(q)||
+    r.raw.toLowerCase().includes(q)||r.tag.toLowerCase().includes(q)||
+    r.vr.toLowerCase().includes(q)
+  );
+  return data;
+}
+
+function ftags(){
+  const data=getFiltered();
+  const body=document.getElementById('tagsBody');
+
+  if(!data.length){
+    body.innerHTML='<div class="empty-tags"><p>Aucun tag<br>trouvé</p></div>';
+    document.getElementById('mCount').textContent='0 tags';
+    document.getElementById('mFoot').textContent='—';
+    return;
+  }
+
+  document.getElementById('mCount').textContent=data.length+' tags';
+
+  // Grouper par catégorie si mode "tous"
+  const GROUPS = gCat==='all'
+    ? {Patient:data.filter(t=>t.cat==='patient'),Étude:data.filter(t=>t.cat==='study'),Série:data.filter(t=>t.cat==='series'),Acquisition:data.filter(t=>t.cat==='acquisition'),Image:data.filter(t=>t.cat==='image'),Autres:data.filter(t=>t.cat==='other')}
+    : {[gCat.charAt(0).toUpperCase()+gCat.slice(1)]:data};
+
+  const frag=document.createDocumentFragment();
+  for(const[label,items]of Object.entries(GROUPS)){
+    if(!items.length)continue;
+    const gh=document.createElement('div');gh.className='grp-head';gh.textContent=label.toUpperCase();
+    frag.appendChild(gh);
+    for(const r of items){
+      const row=document.createElement('div');row.className='tag-row';
+      const valStr=r.fmt||r.raw;
+      row.innerHTML=
+        `<div class="tag-left"><span class="tag-hex">${r.tag}</span><span class="tag-vr">${r.vr}</span></div>`+
+        `<div class="tag-right"><span class="tag-nm">${r.name}</span><span class="tag-desc">${r.desc}</span><span class="tag-val${!valStr?' empty':''}">${valStr||'—'}</span></div>`;
+      frag.appendChild(row);
+    }
+  }
+  body.innerHTML='';
+  body.appendChild(frag);
+
+  const catTotal=gCat==='all'?allT.length:allT.filter(t=>t.cat===gCat).length;
+  document.getElementById('mFoot').textContent=`${data.length} affichés · ${catTotal} dans la catégorie · ${allT.length} total`;
+}
+
+// ════════════════════════════════════════════════════════════
+// LOAD FILE
+// ════════════════════════════════════════════════════════════
+function fd(d){if(!d||d==='—')return'—';const s=String(d).replace(/\D/g,'');return s.length===8?`${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}`:d;}
+
+function loadF(file){
+  if(!file)return;
+  document.getElementById('lod').classList.add('on');
+  const fr=new FileReader();
+  fr.onload=e=>{
+    try{
+      const ds=parseDicom(e.target.result);gDS=ds;
+      const rows=parseInt(ds._all['00280010'])||512;
+      const cols=parseInt(ds._all['00280011'])||512;
+      const bits=parseInt(ds._all['00280100'])||16;
+      const prp=parseInt(ds._all['00280103'])||0;
+      const pd=ds._tags.find(t=>t.isPx)?.value;
+      if(!pd)throw new Error('Aucune donnée pixel trouvée.');
+      gR=rows;gC=cols;
+      gPX=exPx(ds,rows,cols,bits,prp===1,pd);
+      let wc=parseFloat(ds._all['00281050'])||40;
+      let ww=parseFloat(ds._all['00281051'])||400;
+      if(String(wc).includes('\\'))wc=parseFloat(String(wc).split('\\')[0]);
+      if(String(ww).includes('\\'))ww=parseFloat(String(ww).split('\\')[0]);
+      gWCdef=wc;gWWdef=ww;
+      document.getElementById('swc').value=wc;
+      document.getElementById('sww').value=ww;
+      document.getElementById('wcv').textContent=Math.round(wc);
+      document.getElementById('wwv').textContent=Math.round(ww);
+      // Reset transforms
+      gRot=0;gFH=false;gFV=false;gInv=false;gZ=1;gPX2=0;gPY=0;
+      rndr(document.getElementById('dc'),gPX,rows,cols,wc,ww);
+      applyTr();
+      // Header
+      const mod=ds._all['00080060']||'—';
+      const pat=ds._all['00100010']||'—';
+      document.getElementById('hPat').textContent=pat;
+      document.getElementById('hMod').textContent=mod;
+      document.getElementById('hDim').textContent=`${cols}×${rows}`;
+      document.getElementById('hDate').textContent=fd(ds._all['00080020']||'');
+      // Patient card
+      document.getElementById('pcName').textContent=pat;
+      document.getElementById('pcId').textContent=ds._all['00100020']||'—';
+      document.getElementById('pcDob').textContent=fd(ds._all['00100030']||'');
+      document.getElementById('pcSex').textContent={'M':'Masculin','F':'Féminin','O':'Autre'}[ds._all['00100040']]||ds._all['00100040']||'—';
+      document.getElementById('pcAge').textContent=ds._all['00101010']||'—';
+      document.getElementById('pcSize').textContent=ds._all['00101020']?ds._all['00101020']+' m':'—';
+      // Overlays
+      document.getElementById('ovTL').innerHTML=`${pat}\n${mod}`;
+      document.getElementById('ovTL').style.whiteSpace='pre';
+      document.getElementById('ovTR').innerHTML=`WC: ${Math.round(wc)}\nWW: ${Math.round(ww)}`;
+      document.getElementById('ovTR').style.whiteSpace='pre';
+      // Status
+      document.getElementById('led').classList.add('on');
+      document.getElementById('ledTxt').textContent='ONLINE';
+      // Show canvas
+      document.getElementById('dzone').style.display='none';
+      document.getElementById('cwrap').classList.add('show');
+      // Tags
+      document.querySelectorAll('.cat-tab').forEach(t=>t.classList.remove('active'));
+      document.querySelector('[data-cat="all"]').classList.add('active');
+      gCat='all';
+      fillTags(ds);
+      document.getElementById('lod').classList.remove('on');
+      showT('Fichier chargé avec succès','ok');
+    }catch(err){
+      document.getElementById('lod').classList.remove('on');
+      showT(err.message,'err');
+    }
+  };
+  fr.readAsArrayBuffer(file);
+}
+
+// ════════════════════════════════════════════════════════════
+// PDF EXPORT
+// ════════════════════════════════════════════════════════════
+function exportPDF(){
+  if(!gDS||!gPX){showT('Chargez d\'abord un fichier DICOM.','err');return;}
+  showT('Génération PDF…');
+  setTimeout(()=>{
+    try{
+      const{jsPDF}=window.jspdf;
+      const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+      const W=210,M=15;
+
+      // Header
+      doc.setFillColor(6,13,20);
+      doc.rect(0,0,W,24,'F');
+      doc.setFont('helvetica','bold');doc.setFontSize(18);
+      doc.setTextColor(0,212,255);
+      doc.text('NeuroScan',M,15);
+      doc.setFontSize(7);doc.setFont('helvetica','normal');
+      doc.setTextColor(74,122,155);
+      doc.text('DICOM Medical Imaging Report · Assia Marzouk',M,20);
+      doc.setTextColor(100,140,160);
+      doc.text(new Date().toLocaleDateString('fr-FR',{weekday:'long',year:'numeric',month:'long',day:'numeric'}),W-M,15,'right');
+      doc.text('v2.0',W-M,20,'right');
+
+      let y=30;
+
+      // Image
+      const cv=document.getElementById('dc');
+      const imgData=cv.toDataURL('image/png');
+      const iW=80,iH=Math.round(iW*(gR/gC));
+      const iX=(W-iW)/2;
+      doc.addImage(imgData,'PNG',iX,y,iW,iH);
+      doc.setDrawColor(0,212,255);doc.setLineWidth(0.3);
+      doc.rect(iX,y,iW,iH);
+      doc.setFontSize(7);doc.setTextColor(74,122,155);
+      doc.text(`WC: ${Math.round(+document.getElementById('swc').value)}  ·  WW: ${Math.round(+document.getElementById('sww').value)}  ·  ${gC}×${gR}px`,W/2,y+iH+4,'center');
+      y+=iH+10;
+
+      // Separator
+      doc.setDrawColor(0,212,255);doc.setLineWidth(0.2);
+      doc.line(M,y,W-M,y);y+=6;
+
+      // Metadata by category
+      const CATS=[
+        {key:'patient',label:'PATIENT'},
+        {key:'study',label:'ÉTUDE'},
+        {key:'series',label:'SÉRIE'},
+        {key:'acquisition',label:'ACQUISITION'},
+        {key:'image',label:'IMAGE'},
+      ];
+
+      for(const cat of CATS){
+        const rows=allT.filter(t=>t.cat===cat.key&&t.raw);
+        if(!rows.length)continue;
+        if(y>260){doc.addPage();y=15;}
+        // Section title
+        doc.setFillColor(6,13,20);
+        doc.rect(M,y,W-2*M,6,'F');
+        doc.setDrawColor(0,212,255);doc.setLineWidth(0.15);
+        doc.rect(M,y,W-2*M,6);
+        doc.setFont('helvetica','bold');doc.setFontSize(7);
+        doc.setTextColor(0,212,255);
+        doc.text('// '+cat.label,M+2,y+4.3);
+        y+=8;
+
+        doc.setFont('helvetica','normal');
+        for(const r of rows){
+          if(y>278){doc.addPage();y=15;}
+          doc.setFontSize(6);doc.setTextColor(0,150,180);
+          doc.text(r.tag,M,y);
+          doc.setFontSize(7);doc.setTextColor(40,60,80);
+          doc.text(r.name,M+26,y);
+          const val=(r.fmt||r.raw).replace(/<[^>]+>/g,'—');
+          doc.setTextColor(20,20,40);
+          doc.text(val.length>55?val.substring(0,55)+'…':val,M+86,y);
+          doc.setDrawColor(20,50,70);doc.setLineWidth(0.08);
+          doc.line(M,y+1.5,W-M,y+1.5);
+          y+=5.5;
+        }
+        y+=4;
+      }
+
+      // Footer
+      const pc=doc.internal.getNumberOfPages();
+      for(let i=1;i<=pc;i++){
+        doc.setPage(i);
+        doc.setFontSize(6);doc.setTextColor(74,122,155);
+        doc.text(`NeuroScan DICOM Report · Assia Marzouk · Page ${i}/${pc}`,W/2,293,'center');
+        doc.setDrawColor(0,100,140);doc.setLineWidth(0.15);
+        doc.line(M,290,W-M,290);
+      }
+
+      const fn=document.getElementById('fi').files[0]?.name?.replace('.dcm','')||'dicom';
+      doc.save(`NeuroScan_${fn}.pdf`);
+      showT('PDF exporté !','ok');
+    }catch(err){showT('Erreur PDF : '+err.message,'err');}
+  },80);
+}
+
+// ════════════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════════════
+function ftags(){
+  const data=getFiltered();
+  const body=document.getElementById('tagsBody');
+  if(!data.length){
+    body.innerHTML='<div class="empty-tags"><p>Aucun résultat</p></div>';
+    document.getElementById('mCount').textContent='0 tags';
+    document.getElementById('mFoot').textContent='—';
+    return;
+  }
+  document.getElementById('mCount').textContent=data.length+' tags';
+  const GROUPS=gCat==='all'
+    ?{Patient:data.filter(t=>t.cat==='patient'),Étude:data.filter(t=>t.cat==='study'),Série:data.filter(t=>t.cat==='series'),Acquisition:data.filter(t=>t.cat==='acquisition'),Image:data.filter(t=>t.cat==='image'),Autres:data.filter(t=>t.cat==='other')}
+    :{[gCat.charAt(0).toUpperCase()+gCat.slice(1)]:data};
+  const frag=document.createDocumentFragment();
+  for(const[label,items]of Object.entries(GROUPS)){
+    if(!items.length)continue;
+    const gh=document.createElement('div');gh.className='grp-head';gh.textContent='// '+label.toUpperCase();
+    frag.appendChild(gh);
+    for(const r of items){
+      const row=document.createElement('div');row.className='tag-row';
+      const valStr=r.fmt||r.raw;
+      row.innerHTML=
+        `<div class="tag-left"><span class="tag-hex">${r.tag}</span><span class="tag-vr">${r.vr}</span></div>`+
+        `<div class="tag-right"><span class="tag-nm">${r.name}</span><span class="tag-desc">${r.desc}</span><span class="tag-val${!valStr?' empty':''}">${valStr||'—'}</span></div>`;
+      frag.appendChild(row);
+    }
+  }
+  body.innerHTML='';body.appendChild(frag);
+  const catTotal=gCat==='all'?allT.length:allT.filter(t=>t.cat===gCat).length;
+  document.getElementById('mFoot').textContent=`${data.length} affichés · ${catTotal} catégorie · ${allT.length} total`;
+}
+
+let _toastTimer;
+function showT(m,type){
+  const t=document.getElementById('toast');
+  t.textContent=m;t.className='show '+(type||'');
+  clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>t.classList.remove('show'),4500);
+}
+</script>
+</body>
+</html>
